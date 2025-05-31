@@ -5,7 +5,7 @@ from vnpy.trader.object import TickData,BarData,TradeData,OrderData
 from vnpy_ctastrategy.base import StopOrder
 from vnpy.trader.utility import BarGenerator,ArrayManager
 
-class WaitMoment(CtaTemplate):
+class WaitMoment_02(CtaTemplate):
     author = "luozhw"
 
     #参数的定义
@@ -66,7 +66,7 @@ class WaitMoment(CtaTemplate):
 
     def on_init(self) -> None:
         """"""
-        print('哎哟。。。')
+
         self.write_log(f'{self.vt_symbol} -> 策略初始化')
         self.load_bar(50)
 
@@ -99,23 +99,22 @@ class WaitMoment(CtaTemplate):
 
         #指标判断，是否开仓平仓
         if self.pos==0: #判断空仓，是否要开仓
-            if self.fast_var>self.mid_var >self.slow_var and bar.close_price<min(self.am5.close_array[-self.N_parameter,-1]):
-               self.buy(bar.close_price,self.fix_size) #开多仓使用限价单
-            elif self.fast_var<self.mid_var<self.slow_var and bar.close_price>max(self.am5.close_array[-self.N_parameter,-1]):
-                self.short(bar.close_price,self.fix_size) #开空仓使用限价单
+            if self.fast_var>self.mid_var >self.slow_var and bar.close_price<min(self.am5.close_array[-self.N_parameter:-1]):
+               self.buy_price=bar.close_price
+            elif self.fast_var<self.mid_var<self.slow_var and bar.close_price>max(self.am5.close_array[-self.N_parameter:-1]):
+                self.short_price=bar.close_price
         elif self.pos>0: #判断多仓，是否要平多仓
             if bar.close_price < self.mid_var or self.fast_var<self.mid_var:
-                self.sell(bar.close_price,abs(self.pos),stop=True) #平仓用停止单
-
-                #判断要不要开空仓
-                if self.fast_var < self.mid_var < self.slow_var and bar.close_price > max(self.am5.close_array[-self.N_parameter, -1]):
-                    self.short(bar.close_price, self.fix_size)  # 开空仓使用限价单
+               self.sell_price=bar.close_price
+               #是否要做空
+               if self.fast_var < self.mid_var < self.slow_var and bar.close_price > max(self.am5.close_array[-self.N_parameter: -1]):
+                    self.short_price=bar.close_price
         elif self.pos<0: #判断空仓，是否要平空仓
             if bar.close_price > self.mid_var or self.fast_var > self.mid_var:
-                self.cover(bar.close_price, abs(self.pos), stop=True)  # 平仓用停止单
+                self.cover_price=bar.close_price
                 # 判断要不要开多仓
-                if self.fast_var > self.mid_var > self.slow_var and bar.close_price < min(self.am5.close_array[-self.N_parameter, -1]):
-                    self.buy(bar.close_price, self.fix_size)  # 开空仓使用限价单
+                if self.fast_var > self.mid_var > self.slow_var and bar.close_price < min(self.am5.close_array[-self.N_parameter: -1]):
+                    self.buy_price=bar.close_price
 
 
         if self.stop_price and self.profit_price and self.pos!=0:
@@ -125,6 +124,25 @@ class WaitMoment(CtaTemplate):
             elif self.pos<0:
                 self.cover(self.stop_price,self.profit_price,stop=True) #停止单止损
                 self.cover(self.profit_price,self.stop_price,stop=False) #限价单止盈
+
+        self.send_now_orders()
+
+    def send_now_orders(self):
+        """发送委托"""
+        if self.buy_price and self.pos==0:
+            self.buy(self.buy_price,self.fix_size)
+            self.buy_price=0
+        if self.short_price and self.pos==0:
+            self.short(self.short_price,self.fix_size)
+            self.short_price=0
+        if self.sell_price and self.pos>0:
+            self.sell(self.sell_price,self.fix_size,stop=True)
+            self.sell_price=0
+        if self.cover_price and self.pos<0:
+            self.cover(self.cover_price,self.fix_size,stop=True)
+            self.cover_price=0
+
+
 
 
     def on_30min_bar(self, bar: BarData) -> None:
@@ -148,14 +166,14 @@ class WaitMoment(CtaTemplate):
             #根据方向确定乘数因子
             direction_factor =1 if trade.direction==Direction.LONG else -1
 
-            self.stop_price=trade.price *(1000-direction_factor*self.stop_price)/1000
-            self.profit_price=trade.price*(1000+direction_factor*self.profit_price)/1000
+            self.stop_price=trade.price *(1000-direction_factor*self.stop_parameter)/1000
+            self.profit_price=trade.price*(1000+direction_factor*self.profit_parameter)/1000
 
 
         elif trade.offset==Offset.CLOSE and self.pos==0:
             self.profit_price=0
             self.stop_price=0
-
+            self.send_now_orders()
 
     def on_stop_order(self, stop_order: StopOrder) -> None:
         pass
